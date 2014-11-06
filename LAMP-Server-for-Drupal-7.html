@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LAMP Server for Drupal 7</title>
+<link rel="stylesheet" href="https://stackedit.io/res-min/themes/base.css" />
+<script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
+</head>
+<body><div class="container"><h1 id="drupal-server-setup">Drupal Server Setup</h1>
+
+<p>The following is an annotated guide to setting up a Linux server to host one or more Drupal instances. All commands are specific to Debian/Ubuntu distributions, where we rely on the “apt” package manager to install and update server packages. In most cases, the CentOS equivalent is available with”yum,” though package names may vary and Apache configuration is a little different. For this example, we’ll use Ubuntu 12.04 LTS.</p>
+
+<p><a href="https://www.drupal.org/requirements/php">Drupal System Requirements</a></p>
+
+<blockquote>
+  <p>Starting with a fresh install or VM instance. This doesn’t cover setting up the server hostname or hosts file. You can find that info from <a href="http://pingv.com/blog/precisely-drupal-setting-up-ubuntu-12-04-precise-pangolin-lamp-stack-for-your-drupal-7-site">here</a> (one of the primary sources for this document).</p>
+</blockquote>
+
+
+
+<h4 id="root-sudo">Root / Sudo</h4>
+
+<p>Log into the new server and immediately setup a different admin user. Apart from this initial setup, you should never log in as the root user. It’s safer and more secure to create a new administrative user and use the ‘sudo’ command from that user. Having to use sudo to run superuser commands can help prevent some potentially system-breaking accidents, and it also means that any root-level commands run through sudo will be logged to ‘/var/log/secure’ if later review is needed.</p>
+
+<p><code>/usr/sbin/adduser urban</code>  <br>
+<em>(set [urban] to whatever you’d like this will be your admin user)</em></p>
+
+<p>You will be asked to set a password for the new user. The values for Full Name and the rest can be left blank.</p>
+
+<p>Since you’ll want to use this user instead of ‘root’ to manage your system, it will need to be able to use the sudo command. Ubuntu 12.04 should already have a “sudo” group, so add your user:</p>
+
+<p><code>/usr/sbin/usermod -a -G sudo urban</code></p>
+
+
+
+<h4 id="ssh">SSH</h4>
+
+<p>Even with SSH, plain-text passwords can create a vulnerability. It’s generally recommended to rely on SSH key pairs for authentication. This way, only machines with matched key pairs can log in to the server. While secure, it’s not always realistic for development environments, where the convenience of logging in from various machines might be necessary. On production servers (and dev if you are being extra careful), setup your key pairs, starting with your local workstation:</p>
+
+<p><strong>Mac/Linux</strong></p>
+
+<p><code>mkdir ~/.ssh</code></p>
+
+<p><code>ssh-keygen -t rsa</code>  </p>
+
+<p>You will be prompted to create a passphrase. If you are confident that your machine will remain secure, then you don’t need to create one. All this does is add an extra layer of protection on your local machine, and you’ll be prompted for it at every use. It’s very common on trusted, secured workstations to ignore the password prompt. Some additional insight is <a href="http://serverfault.com/questions/142959/is-it-okay-to-use-a-ssh-key-with-an-empty-passphrase">here</a>.</p>
+
+<p>That created two files in the .ssh directory: id_rsa and id_rsa.pub. The pub file holds the public key. This is the file that is placed on the server.</p>
+
+<p>The other file is your private key. Never share this file with someone else or store it on a public computer.</p>
+
+<p><strong>Windows</strong> <br>
+or use <a href="http://articles.slicehost.com/2009/2/4/ssh-puttygen">PuTTYgen</a> </p>
+
+<p>Now copy the id_rsa.pub file to the server:</p>
+
+<p><code>scp ~/.ssh/id_rsa.pub urban@123.45.67.890:</code></p>
+
+<p>Back on the Ubuntu server, create a directory called .ssh in your home directory and move the pub key into it:</p>
+
+<p><code>mkdir ~urban/.ssh mv ~urban/id_rsa.pub ~urban/.ssh/authorized_keys</code></p>
+
+<p>and set the correct permissions:</p>
+
+<p><code>chown -R urban:urban ~demo/.ssh</code> <br>
+<code>chmod 700 ~urban/.ssh</code> <br>
+<code>chmod 600 ~urban/.ssh/authorized_keys</code></p>
+
+<p><strong>Additional Users</strong> <br>
+If you need to add more users to your system, now or after you finish this initial setup, you can just run through thesteps above again for each user.</p>
+
+<p>If the user doesn’t need to have administrative privileges, skip the part where you add the user to the ‘sudo’ group.</p>
+
+<p>If the user will be accessed from the same workstation as your administrative user, you can re-use the same public SSH key for the new user.</p>
+
+<p>Now, make some changes to the <a href="http://articles.slicehost.com/assets/2007/9/4/sshd_config.txt">default SSH config</a>. Most important, change the ssh port.</p>
+
+<blockquote>
+  <p>NOTE: The port number can readily be any integer between 1025 and 65536 (inclusive), but should be noted for reference later when any additional listening processes are setup, as it will be important to avoid conflicts. </p>
+  
+  <p>If you need to allow remote logins for more than one user, add the additional users to the ‘AllowUsers’ setting separated by spaces.</p>
+  
+  <p>The labels are fairly self explanatory, but the main security changes to make are to move ssh from the default port of 22 to one of your choosing (we use 30000 in the <a href="http://articles.slicehost.com/assets/2007/9/4/sshd_config.txt">example</a>), turn off remote root logins, and define which users can log in remotely (<em>in the example, demo = urban</em>).</p>
+  
+  <p>PasswordAuthentication has been turned off because we setup the public/private key earlier. Do note that if you intend to access your slice from different computers you may want leave PasswordAuthentication set to ‘yes’. Only use the private key on a secure workstation.</p>
+</blockquote>
+
+<p>After making changes to the SSH config file, reload it. If everything worked, you can logout and log back in (from your paired local workstation) and you shouldn’t be prompted for a password. You’ll thank yourself when you start using <a href="https://www.drupal.org/project/drush">drush</a>.</p>
+
+<p><code>service ssh reload</code></p>
+
+
+
+<h4 id="timezone">Timezone</h4>
+
+<p><code>dpkg-reconfigure tzdata</code></p>
+
+
+
+<h4 id="ip-tables">IP Tables</h4>
+
+<p>Now, let’s configure a basic firewall using iptables to block ports we don’t use and only open those we need. <a href="http://articles.slicehost.com/assets/2007/9/4/iptables.txt">Here</a> is a link to a helpful set of default rules. You’ll need to update this to allow for things like email send/receive, but this will get you started. <em>Note that the example allows SSH access through the port we designated in the previous step</em>:</p>
+
+<p><code>nano /etc/uptables.up.rules</code></p>
+
+<p>To get started quickly, paste in the <a href="http://articles.slicehost.com/assets/2007/9/4/iptables.txt">default rules</a> and modify as necessary.</p>
+
+<p>Flush any current rules from memory:</p>
+
+<p><code>sbin/iptables -F</code></p>
+
+<p>Tell iptables to use your new rules:</p>
+
+<p><code>/sbin/iptables-restore &lt; /etc/iptables.up.rules</code></p>
+
+<p>Check to make sure the new rules are in place:</p>
+
+<p><code>sbin/iptables -L</code></p>
+
+<p>Good? OK, now let’s make sure these rules are restored whenever the server reboots. We’ll setup a really simple script:</p>
+
+<p>Create a new file by running:</p>
+
+<p><code>nano /etc/network/if-pre-up.d/iptables</code></p>
+
+<p>and add the following:</p>
+
+<p><code>#!/bin/sh /sbin/iptables-restore &lt; /etc/iptables.up.rules</code></p>
+
+<p>Save your changes and make the script executable:</p>
+
+<p><code>chmod +x /etc/network/if-pre-up.d/iptables</code></p>
+
+<p>Now that you did it the hard way, be aware there are some useful packages that can make firewall management a little easier.  If you find an alternative, just be sure that you choose it alone or that you go back to using /etc/iptables.up.rules exclusively.</p>
+
+<p>There’s a lot of discussion about how best to configure these rules. Some additional helpful links:</p>
+
+<p><a href="http://library.linode.com/securing-your-server#sph_creating-a-firewall">http://library.linode.com/securing-your-server#sph_creating-a-firewall</a></p>
+
+<p><a href="http://www.thegeekstuff.com/2011/06/iptables-rules-examples/">http://www.thegeekstuff.com/2011/06/iptables-rules-examples/</a></p>
+
+<p><a href="http://www.thegeekstuff.com/2011/02/iptables-add-rule/">http://www.thegeekstuff.com/2011/02/iptables-add-rule/</a></p>
+
+
+
+<h4 id="i-love-lamp">I love LAMP</h4>
+
+<p>There are a number of different ways to get the necessary pieces of LAMP installed. We are going to use the <a href="https://help.ubuntu.com/community/ApacheMySQLPHP">lamp-server^</a> package, which is a collection of basic packages needed for a LAMP server. You can see exactly which packages are getting installed <a href="https://help.ubuntu.com/community/ApacheMySQLPHP">here</a>.</p>
+
+<p>First, refresh the package index and upgrade if necessary:</p>
+
+<p><code>sudo apt-get update</code> <br>
+<code>sudo apt-get upgrade</code></p>
+
+<p>If any packages are held back, go ahead and run:</p>
+
+<p><code>sudo apt-get dist-upgrade</code></p>
+
+<p>Now run:</p>
+
+<p><code>sudo apt-get install lamp-server^</code> <br>
+(don’t forget the caret)</p>
+
+<blockquote>
+  <p>It’s worth noting that MySQL client and server will be installed. If you plan to host your database on a separate server, you can remove the mysql-server package. </p>
+</blockquote>
+
+<p>You’ll be prompted to setup a root password for the MySQL server. Choose a very secure password, write it down in a secure location, and don’t ever lose it! You’ll need this to setup site databases and users.</p>
+
+<blockquote>
+  <p>When complete, Apache will be running and, by default, handling requests to port 80. Visiting <a href="http://my-site-or-ip">http://my-site-or-ip</a> should get you a page indicating that “It Works!”</p>
+</blockquote>
+
+<p><strong>Apache Modules</strong></p>
+
+<p>Drupal “Clean URL’s” are a good thing. Nobody likes crazy urls, loaded with q’s and ?’s. So let’s enable the rewrite module that comes bundled with apache2:</p>
+
+<p><code>sudo a2enmod rewrite</code></p>
+
+<p>While we’re at it, let’s enable a couple modules that will help with caching:</p>
+
+<p><code>sudo a2enmod expires</code> <br>
+<code>sudo a2enmod deflate</code></p>
+
+<p>We can leave this as-is for now (we’ll come back to add virtual hosts and tweak a few config settings), while we install a few more packages.</p>
+
+
+
+<h4 id="install-additional-packages">Install Additional Packages</h4>
+
+<p>Out of the box, Drupal requires a few extra php packages to do its magic. Additionally, some contributed modules require certain packages to work properly. Also, some packages are very helpful (pretty much necessary) for performance optimization. Most, if not all, are installed with apt.</p>
+
+<p><strong>GD2</strong> <br>
+<code>sudo apt-get install php5-gd</code></p>
+
+<p><strong>pear</strong> <br>
+<code>sudo apt-get install php-pear</code></p>
+
+<p><strong>make</strong> <br>
+<code>sudo apt-get install make</code></p>
+
+<p><strong>php5-dev</strong> <br>
+<code>sudo apt-get install php5-dev</code></p>
+
+<p><strong>rsync</strong> <br>
+<code>sudo apt-get install rsync</code></p>
+
+<p><strong>Drush</strong> <br>
+<a href="https://github.com/drush-ops/drush">Drush</a> is the command-line monkey wrench for Drupal. The following should be fine, but some additional installation details are available <a href="http://cgit.drupalcode.org/drush/plain/README.txt?id=HEAD">here</a>.</p>
+
+<p><code>sudo apt-get install curl php5-curl php5-cli</code> <br>
+<code>sudo apt-get install drush</code></p>
+
+<p>Ubuntu’s drush version is old, so let’s use drush to upgrade itself to the latest:</p>
+
+<p><code>sudo drush dl drush --destination='/usr/share'</code></p>
+
+<p>Check your version with:</p>
+
+<p><code>drush --version</code></p>
+
+<p><strong>Git</strong></p>
+
+<p><code>sudo apt-get install git-core</code></p>
+
+<p>We’ll need to generate ssh keys on our server so we can interact with GitHub. Basic instructions for that can be found <a href="https://help.github.com/articles/generating-ssh-keys/">here</a>.</p>
+
+<p><strong>APC</strong></p>
+
+<p>Alternative PHP Cache (APC) speeds things up considerably and plays nicely with Drupal. We are going to install it via apt. Ubuntu’s version is not the most recent, but in most cases, it should suffice - and the benefit of managing through apt is a big one, so we’ll do it that way.</p>
+
+<p><code>sudo apt-get install libprce3-dev</code> <br>
+<code>sudo apt-get php-apc</code></p>
+
+<p>the installer will prompt you to update your ini settings to enable the module. In order to keep things clean, we’ll add an apc.ini file in our php5 conf.d directory:</p>
+
+<p><code>sudo nano /etc/php5/conf.d/apc.ini</code> <br>
+<em>please note that your path may be slightly different. If there is a “mods-available” directory, place your new .ini files there so they are automatically sym-linked to conf.d on restart.</em></p>
+
+<p>In that file, add a minimum of the following, which will be fine in most Drupal cases. When traffic and overhead increase, you may want/need to adjust these settings. More info is available <a href="https://www.drupal.org/node/1777090">here</a>.</p>
+
+<blockquote>
+  <p>extension=apc.so <br>
+  apc.enabled=1 <br>
+  apc.shm_segments=1 <br>
+  apc.shm_size=64</p>
+</blockquote>
+
+<p><strong>uploadprogress</strong></p>
+
+<p>uploadprogress is a php library used by Drupal to display a handy progress bar when uploading files. it’s a little nicer than the default spinning wheel and requires minimal configuration:</p>
+
+<p><code>sudo pecl install uploadprogress</code></p>
+
+<p>Add our .ini file (as with apc, if there is a mods-available directory in /etc/php5, add this file there. If not, do this): <br>
+<code>sudo nano /etc/php5/conf.d/uploadprogress.ini</code></p>
+
+<p>And add the following line:</p>
+
+<blockquote>
+  <p>extension=uploadprogress.so</p>
+</blockquote>
+
+<p>Now is probably a good time to restart apache, which will enable the modules we just installed:</p>
+
+<p><code>sudo service apache2 restart</code></p>
+
+<p><strong>memcached</strong></p>
+
+<p>Yet another caching system, <a href="http://memcached.org/">memcached</a> helps alleviate database load on dynamic web applications. To take advantage of memcached, we’ll be installing a Drupal module and adding a few lines to the settings.php file on our server. For now, let’s focus on the server-side stuff:</p>
+
+<p>We’ll need the build-essential package to compile:</p>
+
+<p><code>sudo apt-get install build-essential</code></p>
+
+<p>And memcached (memcache and memcached are sometimes used interchangeably. basically, the extra “d” is supposed to mean “daemon,” but over time some php packages confused this by including the “d” in their name. It’s confusing and you can read more about it <a href="http://stackoverflow.com/questions/1825256/memcache-vs-memcached">here</a>.)</p>
+
+<p><code>sudo apt-get install memcached libmemcached-tools</code></p>
+
+<p><code>sudo pecl install memcache-beta</code> <br>
+OR <br>
+<code>sudo pecl install memcache-3.0.8</code> <br>
+<em>The Drupal module requires the beta version of memcache. This command should work without having to change any pear/pecl settings.</em> </p>
+
+<p>Now we configure:</p>
+
+<p><code>sudo nano /etc/php5/conf.d/memcache.ini</code></p>
+
+<p>add the following:</p>
+
+<blockquote>
+  <p>extension=memcache.so <br>
+  memcache.hash_strategy=”consistent”</p>
+</blockquote>
+
+<p><em>The hash strategy setting is necessary for Drupal</em></p>
+
+<p><strong>Important</strong> <br>
+<em>The default port for the memcached server is TCP port 11211, so you should update your firewall/iptables to open port 11211 for TCP traffic.</em></p>
+
+<p>More info about configuring memcache can be found <a href="https://www.thefanclub.co.za/how-to/how-install-memcached-on-ubuntu-for-drupal">here</a>. This is useful if you’d like to allocate more RAM. Additionally, the Drupal memcache module can be configured in a number of different ways. More info about that can be found <a href="https://www.drupal.org/node/1131468">here</a>.</p>
+
+<p>Remember, we’ll have to add a few lines of code to our Drupal settings.php file. In the meantime, our server will be ready for it once you start the service and restart apache:</p>
+
+<p><code>sudo service memcached start</code> <br>
+<code>sudo service apache2 restart</code></p>
+
+
+
+<h4 id="postfix">Postfix</h4>
+
+<p>In order for the Drupal site to send or receive email, we’ll use Postfix, Ubuntu’s default Mail Transfer Agent. Postfix installation is super simple, but configuration can be tricky. Complexity of configuration is determined by your network environment and email requirements. Those details are beyond the scope of this document. <a href="https://www.digitalocean.com/community/tutorials/how-to-install-and-setup-postfix-on-ubuntu-12-04">Here</a> is a link to a very simple installation for reference.  </p>
+
+
+
+<h4 id="some-extra-security">Some extra security</h4>
+
+<p>The information below is the tip of the iceberg. A comprehensive resource covering Ubuntu security can be found <a href="http://www.itsecurity.com/features/ubuntu-secure-install-resource/">here</a>.</p>
+
+<p><strong>MySQL secure installation</strong> <br>
+Assuming MySQL is running on the same server as your app, you can run the following command to get an interactive setup of various security options. You will be prompted to set/change the MySQL root password and other things. You won’t need to change the MySQL root password, but you probably want to answer “Y” yes to the other questions.</p>
+
+<p>run: <br>
+<code>mysql_secure_installation</code></p>
+
+<p>Some additional info about securing MySQL can be found <a href="https://www.digitalocean.com/community/tutorials/how-to-secure-mysql-and-mariadb-databases-in-a-linux-vps">here</a>.</p>
+
+<p><strong>Fail2Ban</strong></p>
+
+<p>A simple intrusion detection framework to help prevent brute-force attacks. </p>
+
+<p><code>sudo apt-get install fail2ban</code></p>
+
+<p>Additional configuration info is available <a href="https://help.ubuntu.com/community/Fail2ban">here</a> and <a href="https://www.digitalocean.com/community/tutorials/how-to-protect-ssh-with-fail2ban-on-ubuntu-12-04">here</a>.</p>
+
+<blockquote>
+  <p>If this server is to be used as a template for additional servers moving forward, we can stop right here. Since Drupal updates frequently there is no value in including it as part of a template. Spinning up a new instance of a server with the above packages provides a perfect container into which we can drop the latest version of Drupal 7 or one of the many related distributions (such as OpenPublic or Acquia Drupal).</p>
+</blockquote>
+
+
+
+<h4 id="virtual-hosts">Virtual Hosts</h4>
+
+<p>Assuming we didn’t miss anything, your server should be set-up, locked-down, and generally ready to use as a development or production machine (<em>for the most part, we aren’t dealing with multi-server, high-availability installations here, so “production” assumes a single server including both application and database</em>). Again, we are using Ubuntu/Debian conventions here. To this point, most of what we’ve done will be fairly similar on RHEL/CentOS distros. </p>
+
+<p>Unfortunately, the way virtual hosts are managed in the different distros is rather different. </p>
+
+<p>The principles are the same, but the paths are different, and Ubuntu provides some very useful scripts to easily enable and disable virtual sites (<em><a href="http://www.tecmint.com/apache-virtual-hosting-in-centos/">Here</a> is an article that explains how to setup your CentOS apache similarly to Ubuntu</em>). </p>
+
+<p>With that in mind, let’s get started:</p>
+
+<p>On your server enter: <br>
+<code>cd /etc/apache2/</code></p>
+
+<p>then: <br>
+<code>ls -la</code></p>
+
+<p>For a great overview of the file structure within apache, take a look at apache2.conf. Since Ubuntu 12.04 apache comes with Virtual host support out of the box, we don’t need to make any changes to this file at this time. Should you have needs to “tune” apache for better performance, you’ll find yourself back here. Since that’s a whole other topic, we’ll leave it be for now. <a href="http://fuseinteractive.ca/blog/drupal-performance-tuning-0#.VFqPOJDF8TU">Here</a> is just one of many guides offering tuning suggestions for Apache2 running Drupal 7.</p>
+
+<p>Got all that? Great. Now let’s add a site:</p>
+
+<p><code>cd sites-available</code></p>
+
+<p><code>sudo nano default</code></p>
+
+<p>Another file to review for reference. What you are looking at is the default “site” (the “It Works!” page). It shows many of the settings available to each virtual host, but we are going to make a new one, so exit out of that file and:</p>
+
+<p><code>sudo nano my-site.com</code></p>
+
+<p>You can name the file whatever you’d like. Using the primary domain of the new site is recommended for organizational purposes. If you have a better naming scheme, go for it.</p>
+
+<p>Paste in the following code, making sure to replace the values with your own. </p>
+
+<p>What’s that? You don’t know your DocumentRoot just yet? Of course not, we haven’t added it yet! No worries, we’ll do that next. Just make sure you remember (or write down) the values you used here. Apache2 defaults to /var/www, and it’s recommended to add a directory for each domain/site you plan to host. In our case, “my-site.com.” Within that directory, we’ll be installing Drupal 7. </p>
+
+<p>There is no shortage of information about configuring Apache virtual hosts on Ubuntu 12.04. The following setup is just fine in most cases. </p>
+
+<pre><code>&lt;VirtualHost *:80&gt;
+    DocumentRoot "/var/www/my-site.com/drupal7"
+    ServerName "www.my-site.com"
+    ServerAlias my-site.com
+    ServerAlias another-domain-or-subdomain.com
+        &lt;Directory "/var/www/my-site.com/drupal7"&gt;
+            Options Indexes FollowSymLinks
+            AllowOverride All
+            Order allow,deny
+            Allow from all
+        &lt;/Directory&gt;
+    ErrorLog ${APACHE_LOG_DIR}/my-site_error.log
+    CustomLog ${APACHE_LOG_DIR}/my-site_access.log combined
+&lt;/VirtualHost&gt;
+</code></pre>
+
+<p>With that file saved, we now have a new site available in, um, sites-available. In order to enable the site, we are going to run a special command that creates a symlink to this file from the sites-enabled directory. If you run the command now, you’ll get an error message indicating that your DocumentRoot doesn’t exist. So let’s take care of that before we go enabling anything. For reference, the command is:</p>
+
+<p><code>sudo a2ensite my-site.com</code></p>
+
+<p>Now that you’ve tried that and seen the error, we can proceed to installing Drupal:</p>
+
+<p><em>If you are hosting multiple sites on one server, just repeat this process for each site/domain.</em></p>
+
+
+
+<h4 id="drupal-7">Drupal 7</h4>
+
+<p>Picking up from the previous section, let’s create our domain directory:</p>
+
+<p><code>sudo mkdir /var/www/my-site.com</code></p>
+
+<p><code>cd /var/www/my-site.com</code></p>
+
+<p>To keep things simple, we recommend starting with the latest release of Drupal7 from drupal.org. This is the same Drupal core provided in Acquia’s distribution. It simply excludes the Acquia connector and solr search modules. If/when needed, those modules can be easily installed to take advantage of paid Acquia support and services. It’s worth noting here that Acquia supports Drupal, not just Acquia Drupal. We promise, <a href="https://www.acquia.com/about-us/team/dries-buytaert">Dries</a> won’t mind :)</p>
+
+<p>So let’s get the latest Drupal 7 release from <a href="https://www.drupal.org/project/drupal">https://www.drupal.org/project/drupal</a>:</p>
+
+<p><code>sudo wget http://ftp.drupal.org/files/projects/drupal-7.32.tar.gz</code> <br>
+<code>sudo tar -zxvf drupal-7.32.tar.gz</code> <br>
+<code>sudo mv drupal-7.32 drupal7</code></p>
+
+<p><em>Don’t just copy/paste this part. Chances are there is a new release so be sure to check the link above and get the most current one.</em></p>
+
+<p><strong>Database</strong></p>
+
+<p>Next, we’ll create a database and user for our Drupal instance. You’ll need that mysql root password you wrote down a while back:</p>
+
+<p><code>mysql -u root -p</code></p>
+
+<p>enter password when prompted, then at the mysql prompt:</p>
+
+<p><code>CREATE DATABASE databasename CHARACTER SET utf8 COLLATE utf8_general_ci;</code></p>
+
+<p><code>GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, CREATE TEMPORARY TABLES ON databasename.* TO 'username'@'localhost' IDENTIFIED BY 'password'</code></p>
+
+<p>Change the specifics above to match your needs (databasename, username, password). When this is done, you can:</p>
+
+<p><code>exit;</code></p>
+
+<blockquote>
+  <p>Again, this all assumes MySQL and Drupal are running on the same server, where localhost would make sense. </p>
+</blockquote>
+
+<p>More detail on this can be found <a href="https://www.drupal.org/documentation/install/create-database">here</a>.</p>
+
+<p><strong>Sites Directory and Settings File</strong></p>
+
+<p>For a variety of different reasons, we’ve found it best to utilize a Drupal multi-site setup, even when there is only going to be a single site within the instance. It provides a nice container for your site-specific custom modules, themes, and files and provides an extra measure of portability. We’ll keep core and contributed modules in sites/all, but all of our custom code will reside in sites/my-site.com. Here’s how we do that.</p>
+
+<p>First, let’s quickly change the owner of the drupal7 dir to our server admin user for now. This way we can create and edit these files without having to “sudo” all the time. Before we are done, we’ll set the correct ownership and permissions, but for right now:</p>
+
+<p><code>sudo chown -R urban:urban drupal7</code></p>
+
+<p>Navigate to your drupal7 directory:</p>
+
+<p><code>cd drupal7</code></p>
+
+<p><code>mkdir sites/my-site.com</code> <br>
+<code>mkdir sites/my-sites.com/themes</code> <br>
+<code>mkdir sites/my-sites.com/modules</code> <br>
+<code>mkdir sites/my-sites.com/files</code></p>
+
+<p>Now let’s create our settings.php file</p>
+
+<p><code>cp sites/default/default.settings.php sites/my-sites.com/settings.php</code></p>
+
+<p>Let’s assume this is going to be our default site. Rather than having to keep two settings.php files, let’s create a handy sym link that ensures THIS settings.php file acts as both our default and site-specific file. If we were adding more sites, we would only do this for one of the sites:</p>
+
+<p><code>ln -s sites/default/settings.php sites/my-sites.com/settings.php</code></p>
+
+<p>Now we need to update our settings.php file with the correct database information. You can do this with nano (or vi or whatever), but you might find it easier to navigate the settings.php file with your favorite text editor.</p>
+
+<p>Open the settings.php file and look for this line:</p>
+
+<p><code>$databases = array();</code></p>
+
+<p>Above that line, you’ll see commented out examples of various database configurations. You can do quite a bit with this settings file, including defining master/slave databases. For now, we only need the single database. Our database setting should be similar to the block below, so replace the line of code above with the block below, making sure to use the information from the database you set up a few steps back:</p>
+
+<pre><code>$databases = array (
+  'default' =&gt; 
+  array (
+    'default' =&gt; 
+    array (
+      'driver' =&gt; 'mysql',
+      'database' =&gt; 'databasename',
+      'username' =&gt; 'username',
+      'password' =&gt; 'password',
+      'host' =&gt; 'localhost',
+      'port' =&gt; '',
+      'prefix' =&gt; '',
+    ),
+  ),
+);
+</code></pre>
+
+<p>As you can see, there are many different settings available to you in the settings file. Most notably, you can override PHP settings at runtime (Assuming your php allows for this, which ours does). Additionally, you can override Drupal variables. This is very helpful when defining instance-specific variables, like overriding the files directory path in a development environment.</p>
+
+<p>For now, let’s just increase the memory limit for PHP applications to allocate a little more RAM to our Drupal site. The default setting in PHP is 128M. Drupal 7 requires at least 64M to run and, realistically, more than that to run quickly. Let’s give our new Drupal site some room to do it’s thing. In the settings.php file, look for “PHP Settings.” You’ll see a few lines there already, with commented explanations. Below the last block in that section, add the following:</p>
+
+<pre><code>/**
+* Set our PHP memory limit to 256M
+*/
+ini_set('memory_limit', '256M');
+</code></pre>
+
+<p>That’s it for the settings.php file for now. Save and close. We have some file permissions to set.</p>
+
+<p><strong>File Ownership and Permissions</strong></p>
+
+<p>To fully understand Drupal’s recommended file permissions and ownership, it’s worth your time to read the <a href="https://www.drupal.org/node/244924">documentation on drupal.org</a>. We’ll be using this as our guide. We’re going to follow the recommendations under the <strong>Linux Servers</strong> header.</p>
+
+<p>One important overall concept is that, with one exception, all files and directories will be owned by your own Linux user, but within the apache user’s group (“www-data” is the Ubuntu/Apache user and group). The exception? “files” directories. The www-data user (Apache) needs to own “files” directories to allow for file uploads.</p>
+
+<p>Sure, we could have you cut and paste more bash commands to set the correct file permissions, but thanks for the fine folks in the Drupal community, there’s a script for that. Using “urban” as the “drupal” owner and “www-data” as the apache user, install the script provided on the <a href="https://www.drupal.org/node/244924">documentation</a> page, follow the instructions provided there, and run the script.</p>
+
+<p>If you run into any problems, scroll down to the comments. Most common issues are handled there with simple solutions provided. In general, it should work as advertised.</p>
+
+<p><strong>sites.php</strong></p>
+
+<p>Drupal 7 provides a great way to manage domains for development and staging instances of your site. In the “sites” directory (drupal7/sites), you’ll find the “example.sites.php” file. This provides the ability to setup simple redirects to point domains to site folders.</p>
+
+<p>Let’s say this server we are building is for a development server. If the “live” site is going to be my-site.com (which is what we set in our Virtual Host), then we probably will have an “in-progress” version of that site hosted elsewhere and accessible via a different domain (usually a sub domain). So, we’ll say our dev site is going to be “dev.my-site.com,” and that DNS is pointed to our dev server, which uses “dev.my-site.com” as the ServerName or ServerAlias in its virtual host file. </p>
+
+<p>Without the “sites.php” file, dev.my-site.com wouldn’t work properly even though it’s pointed to the correct directory. Drupal assumes the directory name for your site (“drupal7/sites/my-site.com”) matches the actual domain in use. Sites.php overrides this default and allows you to point other domains to a given site domain. Let’s do this. From your Drupal root (/var/www/my-site.com/drupal7).</p>
+
+<p><code>cp sites/example.sites.php sites/sites.php</code></p>
+
+<p>Open the new sites.php file in a text editor (or nano or whatever if you prefer) and note the examples. In our case, we are going to add the line:</p>
+
+<p><code>$sites['dev.my-site.com'] = 'my-site.com'</code></p>
+
+<blockquote>
+  <p><strong>IMPORTANT</strong>: Like the settings file, sites.php will be instance-specific. Ignore it in Git so it doesn’t end up in your repository and make you crazy when you are pushing new changes live.</p>
+</blockquote>
+
+<p><strong>Final Installation</strong></p>
+
+<p>We’ve come a long way from a fresh, bare-bones Linux server. Assuming we haven’t missed anything (it’s possible, we’ll update this document as needed), we should have everything we need to enable the site in Apache and run the Drupal installation from a Web browser. Let’s light this candle:</p>
+
+<p><code>sudo a2ensite my-site.com</code> <br>
+<code>sudo service apache2 restart</code></p>
+
+<p>If you don’t get any error messages, then it’s time to open your favorite browser and navigate to <a href="http://www.my-site.com">http://www.my-site.com</a> (more likely <a href="http://dev.my-site.com">http://dev.my-site.com</a>, but you get the idea).</p>
+
+<p>Drupal will automatically redirect to the installation script. You will be prompted to enter user details for the primary admin user. Be sure to save your password somewhere secure. </p>
+
+<p>When installation is complete, you will be re-directed to your new Drupal 7 site, which has defaulted to the Garland theme. That is Drupal’s way of letting you know it’s time to get to work.</p>
+
+
+
+<h4 id="whats-next">What’s Next</h4>
+
+<p>The first thing you probably want to do is log back into your server, navigate to your Drupal root and run a simple Drush command:</p>
+
+<p><code>drush status</code></p>
+
+<p>If drush and Drupal are installed correctly, you’ll get the basic status details about your site. This is good. Now maybe start grabbing some “should be in core” modules:</p>
+
+<p><code>drush dl ctools views admin_menu features strongarm</code></p>
+
+<p>…to name just a few. Respond “Y” to any dependency modules required and don’t be shy. Out of box Drupal is like buying a car with no options in the 80’s: “Oh, you wanted AM and FM on your radio?” and so on.</p>
+
+<p>Enjoy!</p>
+
+
+
+<h4 id="sources-and-resources">Sources and Resources</h4>
+
+<p><a href="http://www.drupal.org">Drupal.org</a> <br>
+learn it, live it, love it. </p>
+
+<p><a href="https://www.drupal.org/documentation/install">Drupal.org Installation Guide</a> <br>
+Drupal documentation has improved significantly over the past 2 years. </p>
+
+<p><a href="https://www.drupal.org/documentation/install">Drupal Best Practices</a> <br>
+Seriously, don’t hack core! (and other rules to develop by)</p>
+
+<p><a href="https://www.drupal.org/requirements/php">Drupal PHP Requirements</a></p>
+
+<p><a href="https://www.thefanclub.co.za/how-to/how-install-memcached-on-ubuntu-for-drupal">How to install memcached on ubuntu for Drupal</a></p>
+
+<p>Drupal.org <a href="https://www.drupal.org/node/1131468">Drupal Memcache Installation</a> <br>
+Great resource with links to most commonly used Linux distros</p>
+
+<p><a href="http://articles.slicehost.com/">Slicehost</a> <br>
+Purchased by RackSpace several years ago, their tutorials for setting up Linux servers from scratch are among the best. More recent versions aren’t necessarily covered, but much of this tutorial evolved from the documentation provided on this site.</p>
+
+<p><a href="http://pingv.com/blog/precisely-drupal-setting-up-ubuntu-12-04-precise-pangolin-lamp-stack-for-your-drupal-7-site">Precisely Drupal</a> <br>
+We lifted some items directly from this tutorial. It’s a couple years old but still applies.</p></div></body>
+</html>
