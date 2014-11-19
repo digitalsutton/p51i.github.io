@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PTS install on Acquia Dev Desktop</title>
+<link rel="stylesheet" href="https://stackedit.io/res-min/themes/base.css" />
+<script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
+</head>
+<body><div class="container"><h1 id="pts-install-on-acquia-desktop-dev">PTS Install on Acquia Desktop Dev</h1>
+
+<p>The following procedure should be used to install the most recent master branch of PTS/OTIS onto your local machine using Acquia Dev Desktop.</p>
+
+<h2 id="1-create-new-drupal-site">1. Create New Drupal Site</h2>
+
+<p>Create a new site using the Acquia Dev Desktop Interface. Be sure to select the <strong>Acquia 7.x</strong> release (should be the second option on your list of distributions). Name the site and database whatever you like</p>
+
+<p>Go through installation and site setup screens in your browser.</p>
+
+
+
+<h2 id="2-connect-to-the-git-repository">2. Connect to the GIT repository</h2>
+
+<p>Navigate to the Drupal root of your freshly-installed site (probably something like “~/Sites/devdesktop/my_site”).</p>
+
+<p>From the Drupal root, do the following:</p>
+
+<p>Initialize a new local repository: <br>
+<code>git init</code></p>
+
+<p>Add the main repo as the origin source: <br>
+<code>git remote add origin https://github.com/UI-Research/otis.git</code></p>
+
+<p>Create a new branch: <br>
+<code>git checkout -b my_branch</code></p>
+
+<p>Add all the files (don’t worry, we are going to overwrite most of this after our initial commit): <br>
+<code>git add -A</code></p>
+
+<p>Commit to your local branch: <br>
+<code>git commit -a -m "initial commit for my_branch"</code></p>
+
+<p>Fetch the master branch from Github: <br>
+<code>git fetch origin master</code></p>
+
+<p>Use a merge strategy to overwrite any shared files in your new branch with files from master.  <br>
+<code>git merge -s recursive -X theirs origin/master</code></p>
+
+<p>Check the status to make sure there are no issues or errors: <br>
+<code>git status</code></p>
+
+<h2 id="3-point-drupal-to-the-pts-multisite">3. Point Drupal to the PTS multisite</h2>
+
+<p>Navigate to the “sites” directory (Drupal_root/sites), and you will see a new directory, currently labeled “otis2.local.” We want to tell Drupal to point to this directory rather than the “default” directory. To make this work, we need to create a files directory and copy the settings.php file into the otis2.local directory:</p>
+
+<ol>
+<li>In otis2.local, create a New Folder named “files”</li>
+<li>Copy the settings.php file from the “default” directory and paste into “otis2.local”</li>
+<li>If there is already a “sites.php” file, edit it. Otherwise, rename “example.sites.php” to “sites.php.” At the end of the file, after the comments, create a new line similar to the following:</li>
+</ol>
+
+<p><code>$sites['8083.my_site.local'] = 'otis2.local';</code></p>
+
+<p>The comments in this file explain how this setting works. The port number goes first, and 8083 is the default Drupal Acquia Dev Desktop port. If yours is configured differently, adjust as needed.</p>
+
+<p>Save the file and visit your site in a browser. It should look and work the same. Go to “Modules” and make sure the “PTS” module group is there. If so, you’re ready to start enabling.</p>
+
+
+
+<h2 id="4-enable-pts-and-dependencies">4. Enable PTS and dependencies</h2>
+
+<p>Need to update change field_ssn dependency. If you try to enable PTS Participant or PTS Feature Fields module, you will likely receive an error. That is in progress.</p></div></body>
+</html>
