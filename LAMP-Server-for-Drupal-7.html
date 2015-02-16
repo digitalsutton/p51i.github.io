@@ -1,13 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LAMP Server for Drupal 7</title>
-<link rel="stylesheet" href="https://stackedit.io/res-min/themes/base.css" />
-<script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
-</head>
-<body><div class="container"><h1 id="drupal-server-setup">Drupal Server Setup</h1>
+<h1 id="drupal-server-setup">Drupal Server Setup</h1>
 
 <p>The following is an annotated guide to setting up a Linux server to host one or more Drupal instances. All commands are specific to Debian/Ubuntu distributions, where we rely on the “apt” package manager to install and update server packages. In most cases, the CentOS equivalent is available with”yum,” though package names may vary and Apache configuration is a little different. For this example, we’ll use Ubuntu 12.04 LTS.</p>
 
@@ -563,6 +554,17 @@ ini_set('memory_limit', '256M');
 
 
 
+<h4 id="more-security-considerations">More Security Considerations</h4>
+
+<p>The following block should be placed in either the .htaccess of the webroot, in the virtual host block, or in apache2.conf, to protect against Remote File Inclusion vulnerabilities (RFI)    </p>
+
+<pre><code>#Forbid all requests with absolute URLs in string to protect against Remote File Inclusion
+
+RewriteEngine On
+RewriteCond %{QUERY_STRING} (.*)(http|https|ftp|zlib|ogg):\/\/(.*)
+RewriteRule ^(.+)$ - [F]
+</code></pre>
+
 <h4 id="sources-and-resources">Sources and Resources</h4>
 
 <p><a href="http://www.drupal.org">Drupal.org</a> <br>
@@ -585,5 +587,4 @@ Great resource with links to most commonly used Linux distros</p>
 Purchased by RackSpace several years ago, their tutorials for setting up Linux servers from scratch are among the best. More recent versions aren’t necessarily covered, but much of this tutorial evolved from the documentation provided on this site.</p>
 
 <p><a href="http://pingv.com/blog/precisely-drupal-setting-up-ubuntu-12-04-precise-pangolin-lamp-stack-for-your-drupal-7-site">Precisely Drupal</a> <br>
-We lifted some items directly from this tutorial. It’s a couple years old but still applies.</p></div></body>
-</html>
+We lifted some items directly from this tutorial. It’s a couple years old but still applies.</p>
